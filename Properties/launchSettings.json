@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "thesis-project": {
+      "commandName": "Project",
+      "commandLineArgs": "ga "
+    }
+  }
+}

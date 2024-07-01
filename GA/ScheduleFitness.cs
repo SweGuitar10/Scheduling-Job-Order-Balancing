@@ -1,4 +1,4 @@
-﻿using ClosedXML.Excel;
+using ClosedXML.Excel;
 using DocumentFormat.OpenXml.Drawing;
 using DocumentFormat.OpenXml.Math;
 using DocumentFormat.OpenXml.Spreadsheet;
@@ -13,6 +13,7 @@ namespace thesis_project;
 
 internal class ScheduleFitness : IFitness
 {
+	double batchWeightFraction = 0.01f;
 	public List<BatchGroup> BatchGroups { get; private set; }
 	public List<Batch> Batches { get; private set; }
 	public Dictionary<string, Dictionary<int, Batch>> BatchesInBatchGroups { get; private set; }
@@ -20,14 +21,14 @@ internal class ScheduleFitness : IFitness
 	// Forced part of the Interface, converts IChromosome to ScheduelChromosome 
 	public double Evaluate(IChromosome chromosome)
 	{
-		ScheduleChromosome convertedChromosome = chromosome as ScheduleChromosome;
-		double check = Evaluate(convertedChromosome);
-		return check;
+		ScheduelChromosome convertedChromosome = chromosome as ScheduelChromosome;
+		return Evaluate(convertedChromosome);
+
 	}
 
 	
 	// there is NO template for the fitness function 
-	public double Evaluate(ScheduleChromosome chromosome)
+	public double Evaluate(ScheduelChromosome chromosome)
 	{
 		BatchGroups = chromosome.BatchGroups;
 		Batches = chromosome.Batches;
@@ -41,14 +42,13 @@ internal class ScheduleFitness : IFitness
 		double n5 = 0;
 		double n6 = 0;
 
-		n1 = n1 + checkOrder(chromosome);                       // (numberOfViolations, weight)^2 
-		n2 = n2 + checkKeepTogetherRule(chromosome);            // (numberOfViolations, weight)^2
-		n3 = n3 + checkHighestPriorityPlacement(chromosome);    // (numberOfViolations, weight)^2
-		n4 = n4 + checkLowestPriorityPlacement(chromosome);     // (numberOfViolations, weight)^2
-		n5 = n5 + checkSpreadEvenlyRule(chromosome);            // lowPenelty = numberOfViolations, weight 
-																// highPenelty = (numberOfViolations, weight)^2 
-		n6 = n6 + checkBatchOrder(chromosome);                  // checkRepeatingPattern = (numberOfViolations, 10)^2
-																// checkBatchesPlacedInASCOrder = (numberOfViolations, 50)^2
+		n1 = n1 + checkOrder(chromosome);                       // batchWeightFraction = 1, exponent = 2 
+		n2 = n2 + checkKeepTogetherRule(chromosome);            // batchWeightFraction = 0.01f
+		n3 = n3 + checkHighestPriorityPlacement(chromosome);    // batchWeightFraction = 0.01f, exponent = 8    // might need higher exponent
+		n4 = n4 + checkLowestPriorityPlacement(chromosome);     // batchWeightFraction = 0.01f, exponent = 8	// might need higher exponent
+		n5 = n5 + checkSpreadEvenlyRule(chromosome);            // lowPenelty = batchWeightFraction = 0.01f 
+																// highPenelty = batchWeightFraction = 0.02f, exponent = 2 
+		n6 = n6 + checkBatchOrder(chromosome);                  // Weight= 0.40, exponent = 2
 
 		f1 = n1 + n2 + n3 + n4 + n5 + n6;
 
@@ -94,26 +94,33 @@ internal class ScheduleFitness : IFitness
 
 		return batchesOfSameType;
 	}
-	
-	// Compares two batches to see if they are of the same type (i.e. if they belong to the exact same batchGroups)
-	private bool isBatchSameType(Batch batch1, Batch batch2)
+
+	// Compares current order of Jobs against expected order of jobs
+	private int checkBatchSortOrder(List<Job> jobs, Queue<Job> currentJobOrder)
 	{
-		string id1 = extractBatchGroupIDs(batch1);
-		string id2 = extractBatchGroupIDs(batch2);
-		if (id2.Equals(id1))
+		int numberOfViolations = 0;
+
+		// Original batch order is presumed to be ordered 
+		for (int i = 0; i < jobs.Count; i++)
 		{
-			return true;
+			string job1 = currentJobOrder.Dequeue().ToString();
+			string job2 = jobs[i].ToString();
+
+			if (!job1.Equals(job2))
+			{
+				numberOfViolations++;
+			}
 		}
-		return false;
+
+		return numberOfViolations;
 	}
-	
+
 	// checks how well the jobs in a batch are placed in an ASC order 
-	// Violation calculation (numberOfViolations, weight)^2
-	private double checkOrder(ScheduleChromosome chromosome)
+	private double checkOrder(ScheduelChromosome chromosome)
 	{
 		int numberOfViolations = 0;
 		int exponent = 2;
-		int weight = 1;
+		double weightFactor = 1;
 		List<int> violationSum = new List<int>();
 		Queue<Job> currentJobOrder = new Queue<Job>();
 
@@ -137,36 +144,13 @@ internal class ScheduleFitness : IFitness
 
 		numberOfViolations = violationSum.Sum(x => x);
 
-		return -QuadraticPenaltyCalculation(numberOfViolations, weight);
-	}
-	
-	// Compares current order of Jobs against expected order of jobs
-	private int checkBatchSortOrder(List<Job> jobs, Queue<Job> currentJobOrder)
-	{
-		int numberOfViolations = 0;
-
-		// Original batch order is presumed to be ordered 
-		for (int i = 0; i < jobs.Count; i++)
-		{
-			string job1 = currentJobOrder.Dequeue().ToString();
-			string job2 = jobs[i].ToString();
-
-			if (!job1.Equals(job2))
-			{
-				numberOfViolations++;
-			}
-		}
-
-		return numberOfViolations;
+		return -QuadraticPenaltyCalculation(numberOfViolations, weightFactor, exponent);
 	}
 
-	// Checks how well the repeating patterns of the batch pattern is followed 
-	/*--------------------------------------------------
-	 * Repeating patterns containe more then one batchgroup, where a batch from each batch group is placed
-	 * in the schedule before staring from the first batch group again. This continues untill there are no more batches left.
-	 * If a batchgroup has a higher number of batches then the other batchgroups, then the final batches might only represent by this batchgroup.
-	 * -------------------------------------------------*/
-	private int checkRepeatingPattern(ScheduleChromosome chromosome)
+	// Checks if there are any batches that belong to a repeating batchgroup or collection of groups with not associated with "spread out" or High/Low prioirity rules 
+	// then calculates the penelty if the pattern is not followed. 
+
+	private int checkRepeatingPattern(ScheduelChromosome chromosome)
 	{
 		List<int> numberOfViolationSum = new List<int>();
 		Dictionary<string, Queue<Batch>> singleBatchGroupRepeatingPattern = new Dictionary<string, Queue<Batch>>();
@@ -246,7 +230,7 @@ internal class ScheduleFitness : IFitness
 
 	// Calculates how often the repeating pattern is violated
 	// Can be performed on specifik "Parent" batch Groups, or a collection of "single" batchGroups
-	private int calculateRepeatingPatternViolations(ScheduleChromosome chromosome, Dictionary<string, Queue<Batch>> repeatingGroupPattern, string batchGroupID)
+	private int calculateRepeatingPatternViolations(ScheduelChromosome chromosome, Dictionary<string, Queue<Batch>> repeatingGroupPattern, string batchGroupID)
 	{
 		Queue<Job> optimalJobOrder = new Queue<Job>();
 		List<string> batchGroupIDList = new List<string>();
@@ -308,8 +292,8 @@ internal class ScheduleFitness : IFitness
 			Job job2 = chromosomeJobOrder.Dequeue();
 			List<string> job1BatchGroupIDs = job1.BatchGroupId;
 			List<string> job2BatchGroupIDs = job2.BatchGroupId;
-			int customerDeliverySequence1 = job1.CustomerDeliverySequence;  
-			int customerDeliverySequence2 = job2.CustomerDeliverySequence;  
+			int customerDeliverySequence1 = job1.CustomerDeliverySequence;  // might not be needed
+			int customerDeliverySequence2 = job2.CustomerDeliverySequence;  // might not be needed 
 
 
 			if ((!job1BatchGroupIDs.SequenceEqual(job2BatchGroupIDs)) ||
@@ -323,7 +307,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Makes a list with only jobs from a specified batch group, in the order they currently are in the chromosome 
-	private Queue<Job> jobOrderFromSpecificGroup(ScheduleChromosome chromosome, string batchgroupID = null, List<string> batchGroupIDs = null)
+	private Queue<Job> jobOrderFromSpecificGroup(ScheduelChromosome chromosome, string batchgroupID = null, List<string> batchGroupIDs = null)
 	{
 		Queue<Job> jobFromSameParentBatchGroup = new Queue<Job>();
 
@@ -357,17 +341,11 @@ internal class ScheduleFitness : IFitness
 
 
 	// Performes checks of the expected order patterns on the scheduel 
-	 /*---------------------------------------------------------------------
-	 * Violation calculation:
-	 * checkRepeatingPattern = (numberOfViolations, 10)^2
-	 * checkBatchesPlacedInASCOrder = (numberOfViolations, 50)^2
-	 * --------------------------------------------------------------------*/
-	private double checkBatchOrder(ScheduleChromosome chromosome)
+	private double checkBatchOrder(ScheduelChromosome chromosome)
 	{
 		int numberOfRepeatingPatternViolations = checkRepeatingPattern(chromosome);
-		double totalRepeatingPatternPenelty = QuadraticPenaltyCalculation(numberOfRepeatingPatternViolations, 10);
-	
-
+		double totalRepeatingPatternPenelty = QuadraticPenaltyCalculation(numberOfRepeatingPatternViolations, 0.40, 2);
+		
 		List<int> numberOfViolationsBatchASCOrder = new List<int>();
 		int batchASCOrderViolationSum = 0;
 
@@ -380,14 +358,13 @@ internal class ScheduleFitness : IFitness
 		}
 
 		batchASCOrderViolationSum = numberOfViolationsBatchASCOrder.Sum(x => x);
-		double totalBatchASCOrderPenelty = QuadraticPenaltyCalculation(batchASCOrderViolationSum, 50); 
+		double totalBatchASCOrderPenelty = QuadraticPenaltyCalculation(batchASCOrderViolationSum, 0.40, 2); // TEMP TODO: VALUES must be decided;
 
-		return -( totalBatchASCOrderPenelty + totalRepeatingPatternPenelty );
+		return -(totalBatchASCOrderPenelty + totalRepeatingPatternPenelty);
 
 	}
 
 
-	
 	// Extracts GroupIDs from a batch
 	private string extractBatchGroupIDs(Batch batch)
 	{
@@ -418,7 +395,18 @@ internal class ScheduleFitness : IFitness
 		return batchIDs;
 	}
 
-		
+	// Compares two batches to see if they are of the same type (i.e. if they belong to the exact same batchGroups)
+	private bool isBatchSameType(Batch batch1, Batch batch2)
+	{
+		string id1 = extractBatchGroupIDs(batch1);
+		string id2 = extractBatchGroupIDs(batch2);
+		if (id2.Equals(id1))
+		{
+			return true;
+		}
+		return false; 
+	}
+	
 	// Places all batches in a Queue in FIFO order
 	private Queue<Batch> placeBatchesInQueue(List<Batch> batches)
 	{
@@ -428,23 +416,20 @@ internal class ScheduleFitness : IFitness
 		{
 			batchQueue.Enqueue(batch);
 		}
-
 		return batchQueue;
 	}
 
 	// Checks that the Batches of same type are placed in an ASC order (jobs go from lowest in first batch and highest in last batch)
-	private int checkBatchesPlacedInASCOrder(ScheduleChromosome chromosome, Dictionary<int, Batch> batchList)
+	private int checkBatchesPlacedInASCOrder(ScheduelChromosome chromosome, Dictionary<int, Batch> batchList)
 	{
 		List<int> violationSum = new List<int>();
 
 		Dictionary<int, int[]> batches = new Dictionary<int, int[]>();
 
 		int batchNumber = 0;
-		/* ------------------------------------------------------------------------
-		 * Collects the index of the fist and last instance of a job from a batch.
-		 * [i] first braket: specifies which batch
-		 * [i] second braket: 0 = first, 1 = last
-		 --------------------------------------------------------------------------*/
+		// Collects the index of the fist and last instance of a job from a batch.
+		// [i] first braket: specifies which batch
+		// [i] second braket: 0 = first, 1 = last
 		foreach (Batch batch in batchList.Values)
 		{
 			int[] startAndEndIndex = new int[2];
@@ -494,8 +479,57 @@ internal class ScheduleFitness : IFitness
 		return totalViolations;
 	}
 
+	// Checks if the same type of batch is overlapping with versions of it self
+	private int checkOverlappingBatches(ScheduelChromosome chromosome, Batch batch)
+	{
+		int numberOfViolations = 0; 
+		int jobsInSameKindBatch = 0;
+		int indexFirstJobOfBatch = -1; 
+		int indexLastJobOfBatch = -1;
 
-	// Checks if a specifik job is part of supplied batch 
+		List<string> batchGroupIDs1 = new List<string>();
+
+		foreach (BatchGroup batchGroup in batch.BatchGroups)
+		{
+			batchGroupIDs1.Add(batchGroup.BatchGroupId);
+		}
+		
+
+		for (int i = 0; i < chromosome.Length; i++)
+		{
+			Job job = chromosome.GetGene(i).Value as Job;
+			List<string> batchGroupIDs2 = job.BatchGroupId;
+
+			if (indexFirstJobOfBatch < 0 && doesJobExistInBatch(batch, job)) 
+			{
+				indexFirstJobOfBatch = i;
+			}
+			else if (doesJobExistInBatch(batch, job))
+			{
+				indexLastJobOfBatch = i; 
+			}
+		}
+
+		for (int i = indexFirstJobOfBatch; i < indexLastJobOfBatch + 1; i++)
+		{
+			Job job = chromosome.GetGene(i).Value as Job;
+			List<string> batchGroupIDs2 = job.BatchGroupId;
+
+			if (batchGroupIDs1.SequenceEqual(batchGroupIDs2))
+			{
+				jobsInSameKindBatch++;
+			}
+		}
+
+		if (indexLastJobOfBatch > -1)
+		{
+			numberOfViolations = jobsInSameKindBatch - batch.Jobs.Count;
+		}
+
+		return numberOfViolations;
+	} 
+
+	// Checks if a specific job is part of supplied batch 
 	private bool doesJobExistInBatch(Batch batch, Job job)
 	{
 		foreach(Job batchJob in batch.Jobs)
@@ -508,27 +542,18 @@ internal class ScheduleFitness : IFitness
 		return false;
 	}
 
-	private double LinearPenaltyCalculation(int numberOfViolations, double weight)
+	private double LinearPenaltyCalculation(int numberOfViolations, double factor)
 	{
-		return numberOfViolations * weight;
+		return numberOfViolations * factor;
 	}
 
-	private double QuadraticPenaltyCalculation(int numberOfViolations, int weight)
+	private double QuadraticPenaltyCalculation(int numberOfViolations, double factor, int exponent)
 	{
-		return Math.Pow(LinearPenaltyCalculation(numberOfViolations, weight),2);
+		return Math.Pow(LinearPenaltyCalculation(numberOfViolations, factor), exponent);
 	}
 
-
-	// Initiates the Spread-out constraint check on relevant batches.
-
-	/*-------------------------------------------------------------------------- 
-	 * Penalties are handled differently depending on the severity of the spread.
-	 *
-	 * Violation calculation:
-	 * lowPenelty = numberOfViolations, weight 
-	 * highPenelty = (numberOfViolations, weight)^2 
-	 *-----------------------------------------------------------------------------*/
-	private double checkSpreadEvenlyRule(ScheduleChromosome chromosome)
+	// Checks how well the "Spread evenly" rule is followed.
+	private double checkSpreadEvenlyRule(ScheduelChromosome chromosome)
 	{
 		string HIGH = "high";
 		string LOW = "low";
@@ -556,20 +581,20 @@ internal class ScheduleFitness : IFitness
 				// checks if the rule applies to the specific groupBatchID
 				if (checkIfSpreadEvenly(batchGroupID))
 				{
-					int weight = batchGroup.Weight;
+					double weightFraction = batchGroup.GetWeightFraction(batchWeightFraction);
 
 					// calculate violations for the individual batches
 					Dictionary<string, int> highLowViolationsNumber = checkBatchSpreadEvenly(chromosome, batch);
-					double lowPenelty = LinearPenaltyCalculation(highLowViolationsNumber[LOW], weight);
-					double highPenelty = QuadraticPenaltyCalculation(highLowViolationsNumber[HIGH], weight);
+					double lowPenelty = LinearPenaltyCalculation(highLowViolationsNumber[LOW], weightFraction);
+					double highPenelty = QuadraticPenaltyCalculation(highLowViolationsNumber[HIGH], weightFraction, exponent);
 
 					batchPeneltyPointSum.Add(lowPenelty + highPenelty);
 
 					// calculetes violations for the entire batchGroup
 					highLowViolationsNumber.Clear();
 					highLowViolationsNumber = checkBatchSpreadEvenly(chromosome, null, batchGroup);
-					double lowBatchGroupPenelty = LinearPenaltyCalculation(highLowViolationsNumber[LOW], weight);
-					double highBatchGroupPenelty = QuadraticPenaltyCalculation(highLowViolationsNumber[HIGH], weight);
+					double lowBatchGroupPenelty = LinearPenaltyCalculation(highLowViolationsNumber[LOW], weightFraction);
+					double highBatchGroupPenelty = QuadraticPenaltyCalculation(highLowViolationsNumber[HIGH], weightFraction, exponent);
 
 					batchGroupPeneltyPointSum.Add(lowBatchGroupPenelty + highBatchGroupPenelty);
 				}
@@ -577,12 +602,11 @@ internal class ScheduleFitness : IFitness
 		}
 
 		totalBatchPenelty = batchPeneltyPointSum.Sum(x => x);
-		totalBatchGroupPenelty = batchGroupPeneltyPointSum.Sum(x => x);
+		totalBatchGroupPenelty = batchGroupPeneltyPointSum.Sum(x => x);	
+		
 
-
-		return -(totalBatchPenelty + totalBatchGroupPenelty);
+		return -(totalBatchPenelty+totalBatchGroupPenelty);
 	}
-
 
 	// Checks if a specific batch Group has the rule Spread-Evenly applyed to it
 	private bool checkIfSpreadEvenly(String groupID)
@@ -599,7 +623,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Calculates number of violations of the constraints, and if it is a hard or soft violation 
-	private Dictionary<string, int> checkBatchSpreadEvenly(ScheduleChromosome chromosome, Batch batch = null, BatchGroup batchGroup = null)
+	private Dictionary<string, int> checkBatchSpreadEvenly(ScheduelChromosome chromosome, Batch batch = null, BatchGroup batchGroup = null)
 	{ 
 		string HIGH = "high";
 		string LOW = "low";
@@ -683,8 +707,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Calculates the number of violations of the "spread out" rule that are performed on a single instance of two jobs 
-	private Dictionary<string, int> calculateSpreadViolations(ScheduleChromosome chromosome, Job firstJob, 
-																	Job secondJob, int cooldown, double maxDistance)
+	private Dictionary<string, int> calculateSpreadViolations(ScheduelChromosome chromosome, Job firstJob, Job secondJob, int cooldown, double maxDistance)
 	{
 		string HIGH = "high";
 		string LOW = "low";
@@ -698,19 +721,28 @@ internal class ScheduleFitness : IFitness
 		List<int> highViolations = new List<int>();
 		List<int> lowViolations = new List<int>();
 		Dictionary<string, int> highLowViolations = new Dictionary<string, int>();
-		Queue<int> firstLastIndex = new Queue<int>();
 
-
-		// search for index of first and second instances of a jobs in current batch 
-		firstLastIndex = firstLastPosition(firstJob, secondJob, chromosome);
-
-		if (firstLastIndex.Count() > 1)
+		// search for first instance of a job in current batch 
+		for (int i = 0; i < chromosome.Length; i++)
 		{
-			secondJobFound= true;
-			indexOfJob1 = firstLastIndex.Dequeue();
-			stepsToJobInSameBatch = firstLastIndex.Dequeue();
+			if ((chromosome.GetGene(i).Value as Job).Equals(firstJob))
+			{
+				indexOfJob1 = i;
+				break;
+			}
 		}
-		
+
+		// search for instance of second job (if it exist) 
+		for (int j = indexOfJob1 + 1; j < chromosome.Length - 1; j++)
+		{
+			stepsToJobInSameBatch++;
+
+			if ((chromosome.GetGene(j).Value as Job).Equals(secondJob))
+			{
+				secondJobFound = true;
+				break;
+			}
+		}
 
 		// if more then one instance of jobs found from current batch  
 		if (secondJobFound)
@@ -718,8 +750,15 @@ internal class ScheduleFitness : IFitness
 			// HARD RULE violation // soft rule HIGH constraint weight
 			if ((stepsToJobInSameBatch < cooldown) || (stepsToJobInSameBatch > maxDistance))
 			{
-				numberOfViolations = cooldown - stepsToJobInSameBatch;    
-			
+				if (stepsToJobInSameBatch < cooldown)
+				{
+					numberOfViolations = cooldown - stepsToJobInSameBatch;    
+				}
+				else
+				{
+					numberOfViolations = cooldown - stepsToJobInSameBatch;
+				}
+
 				if (numberOfViolations < 0)
 				{
 					numberOfViolations = numberOfViolations * -1;
@@ -742,16 +781,14 @@ internal class ScheduleFitness : IFitness
 
 		return highLowViolations;
 	}
-
-
+	
+	
 
 	// Checkes how well the Keep-together rule is followed on batches where it applies 
-	// Violation calculation (numberOfViolations, weight)^2
-	private double checkKeepTogetherRule(ScheduleChromosome chromosome)
+	private double checkKeepTogetherRule(ScheduelChromosome chromosome)
 	{
 		int totalPenelty = 0;
-		List<double> penaltyValues = new List<double>();
-		List<double> numberOfViolationsList = new List<double>();
+		List<double> penaltySum = new List<double>();
 
 		foreach (Batch batch in Batches)
 		{
@@ -764,10 +801,10 @@ internal class ScheduleFitness : IFitness
 				// checks if the rule applies to the specific groupBatchID
 				if (checkIfKeepTogether(batchGroupID))
 				{
-					int weight = batchGroup.Weight;
+					double weightFraction = batchGroup.GetWeightFraction(batchWeightFraction);
 					int numberOfViolations = checkBatchKeepTogether(chromosome, batch);
-					numberOfViolationsList.Add(numberOfViolations);
-					penaltyValues.Add(QuadraticPenaltyCalculation(numberOfViolations, weight));
+
+					penaltySum.Add(LinearPenaltyCalculation(numberOfViolations, weightFraction));
 
 					// Any other batchGroup rules is not relevent if the batchGroup is low or high priority
 					if (batchPriority.Equals(Priority.LOW_PRIO) || batchPriority.Equals(Priority.HIGH_PRIO))
@@ -777,10 +814,8 @@ internal class ScheduleFitness : IFitness
 				}
 			}
 		}
-		
-		double penaltySum = penaltyValues.Sum(x => x);
-		
-		return -penaltySum;
+
+		return -penaltySum.Sum(x => x);
 	}
 	
 	// Checks if a specific batch Group has the rule "Keep Together" applyed to it
@@ -798,94 +833,49 @@ internal class ScheduleFitness : IFitness
 	}
 	
 	// Calculates the number of violations of the "Keep Together" rule on a batch basis.
-	private int checkBatchKeepTogether(ScheduleChromosome chromosome, Batch batch)
+	private int checkBatchKeepTogether(ScheduelChromosome chromosome, Batch batch)
 	{
-
-		List<Job> jobs = batch.Jobs;
-		Queue<Job> currentJobOrder = new Queue<Job>();
-		Queue<int> firstLastIndex = new Queue<int>();
-
 		int cooldown = batch.Cooldown;
-
+		
 		int bestDistance = 0;
 		bestDistance = batch.BestDistance;		
-		
+		int currentDistance = 0;
+
 		int startIndex = 0;
-		int stepsToEndIndex = 0;
+		int endIndex = 0;
 
-		int numberOfViolations = 0;
-
-		if (batch.Jobs.Count > 1)
+		for (int i = 0; i < chromosome.Length; i++)
 		{
-			// Collects the jobs from the specified batch, in the order they are found in the chromosome  
-			for (int i = 0; i < chromosome.Length; i++)
+			foreach (Job job in batch.Jobs)
 			{
-				foreach (Job job in jobs)
+				if (job.Equals(chromosome.Jobs[i]))
 				{
-					if ((chromosome.GetGene(i).Value as Job).Equals(job))
+					if (startIndex == 0) 
 					{
-						currentJobOrder.Enqueue(job);
-					}
+						startIndex = i;
+						endIndex = i;
+					} else
+					{
+						endIndex = i;
+					} 
 				}
 			}
-						
-			Job firstJob = currentJobOrder.Dequeue();
-			Job lastJob = currentJobOrder.Last();
+		}
 
-			// Finds the index of the first job and how many indexes away the last instance of a job from current batch is 
-			firstLastIndex = firstLastPosition(firstJob, lastJob, chromosome);
-			
-			startIndex = firstLastIndex.Dequeue();
-			stepsToEndIndex = firstLastIndex.Dequeue();
+		int numberOfViolations = 0; 
+
+		currentDistance = endIndex - startIndex;
+		if (currentDistance != 0)
+		{
+			numberOfViolations = currentDistance - bestDistance;
+		} else
+		{
+			numberOfViolations = currentDistance;
 		}
 		
-		// Handles instances when a batch has less then 2 jobs  
-		if (stepsToEndIndex != 0)
-		{
-			numberOfViolations = stepsToEndIndex - bestDistance;
-		}
-		else
-		{
-			numberOfViolations = stepsToEndIndex;
-		}
-
 		if (numberOfViolations < 0) { numberOfViolations *= -1; }
 
 		return numberOfViolations;
-	}
-
-	// Finds the index of the first job and how many indexes away the second job is from the first job 
-	private Queue<int> firstLastPosition(Job job1, Job job2, ScheduleChromosome chromosome)
-	{
-		Queue<int> firstLastPosition = new Queue<int>();
-		int indexOfJob1 = -1;
-		int stepsToJob2 = 0; 
-		
-		// search for first instance of a job in current batch 
-		for (int i = 0; i < chromosome.Length; i++)
-		{
-			if ((chromosome.GetGene(i).Value as Job).Equals(job1))
-			{
-				indexOfJob1 = i;
-				break;
-			}
-		}
-
-		// search for instance of second job (if it exist) 
-		for (int j = indexOfJob1 + 1; j < chromosome.Length - 1; j++)
-		{
-			stepsToJob2++;
-
-			if ((chromosome.GetGene(j).Value as Job).Equals(job2))
-			{
-				break;
-			}
-		}
-
-		firstLastPosition.Enqueue(indexOfJob1);
-		firstLastPosition.Enqueue(stepsToJob2);
-
-		return firstLastPosition;
 	}
 
 	// checks if job1 >= job2 
@@ -899,12 +889,12 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Checks if the highest priority jobs are placed first
-	// violation calculation (numberOfViolations, weight)^2
-	private double checkHighestPriorityPlacement(ScheduleChromosome chromosome)
+	// violation calculation (numberOfViolations, factor)^6
+	private double checkHighestPriorityPlacement(ScheduelChromosome chromosome)
 	{
-		
-		int weight = 0;
-		
+		int exponent = 8; // SUBJECT TO CHANGE
+		double weightFraction = 0;
+
 		List<int> penaltyPointsSum = new List<int>();
 		Priority priorityValue = Priority.HIGH_PRIO;
 
@@ -914,8 +904,9 @@ internal class ScheduleFitness : IFitness
 			int numberFromOptimum = 0;
 			int numberOfHighPriority = 0;
 			int indexOfLastHighPriority = 0;
-			weight = batchGroup.Weight; 
-			
+			weightFraction = batchGroup.GetWeightFraction(batchWeightFraction);
+			//double batchGroupPenelty = 0.0; 
+
 			// only enters if High Priority
 			if (batchGroup.Priority.Equals(priorityValue))
 			{
@@ -941,16 +932,16 @@ internal class ScheduleFitness : IFitness
 		}
 
 		int numberOfViolations = penaltyPointsSum.Sum(x => x);
-		return -QuadraticPenaltyCalculation(numberOfViolations, weight);
-	}
-
+		return -QuadraticPenaltyCalculation(numberOfViolations, weightFraction, exponent);
+	}   
 
 	// Checks if the lowest priority jobs are placed last
-	// violation calculation (numberOfViolations, weight)^2
-	private double checkLowestPriorityPlacement(ScheduleChromosome chromosome)
+	// violation calculation (numberOfViolations, factor)^6
+	private double checkLowestPriorityPlacement(ScheduelChromosome chromosome)
 	{
 		List<int> penaltyPointsSum = new List<int>();
-		int weight = 0;
+		int exponent = 8; // SUBJECT TO CHANGE
+		double weightFraction = 0;
 		Priority priorityValue = Priority.LOW_PRIO;
 
 		// Finds the batchgroups with High Priority and records them and there rule weight
@@ -959,7 +950,7 @@ internal class ScheduleFitness : IFitness
 			int numberFromOptimum = 0;
 			int numberOfLowPriority = 0;
 			int indexOfFirstLowPriority = -1;
-			weight = batchGroup.Weight;
+			weightFraction = batchGroup.GetWeightFraction(batchWeightFraction); // SUBJECT TO CHANGE
 			double batchGroupPenelty = 0.0;
 
 			// only enters if High Priority
@@ -997,6 +988,6 @@ internal class ScheduleFitness : IFitness
 
 		int numberOfViolations = penaltyPointsSum.Sum(x => x);
 		
-		return -QuadraticPenaltyCalculation(numberOfViolations, weight);
+		return -QuadraticPenaltyCalculation(numberOfViolations, weightFraction, exponent);
 	}
 }

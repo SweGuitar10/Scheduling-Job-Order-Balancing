@@ -18,17 +18,17 @@ internal class ScheduleFitness : IFitness
 	public List<Batch> Batches { get; private set; }
 	public Dictionary<string, Dictionary<int, Batch>> BatchesInBatchGroups { get; private set; }
 
-	// Forced part of the Interface, converts IChromosome to ScheduelChromosome 
+	// Forced part of the Interface, converts IChromosome to ScheduleChromosome 
 	public double Evaluate(IChromosome chromosome)
 	{
-		ScheduelChromosome convertedChromosome = chromosome as ScheduelChromosome;
+		ScheduleChromosome convertedChromosome = chromosome as ScheduleChromosome;
 		return Evaluate(convertedChromosome);
 
 	}
 
 	
 	// there is NO template for the fitness function 
-	public double Evaluate(ScheduelChromosome chromosome)
+	public double Evaluate(ScheduleChromosome chromosome)
 	{
 		BatchGroups = chromosome.BatchGroups;
 		Batches = chromosome.Batches;
@@ -116,7 +116,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// checks how well the jobs in a batch are placed in an ASC order 
-	private double checkOrder(ScheduelChromosome chromosome)
+	private double checkOrder(ScheduleChromosome chromosome)
 	{
 		int numberOfViolations = 0;
 		int exponent = 2;
@@ -150,7 +150,7 @@ internal class ScheduleFitness : IFitness
 	// Checks if there are any batches that belong to a repeating batchgroup or collection of groups with not associated with "spread out" or High/Low prioirity rules 
 	// then calculates the penelty if the pattern is not followed. 
 
-	private int checkRepeatingPattern(ScheduelChromosome chromosome)
+	private int checkRepeatingPattern(ScheduleChromosome chromosome)
 	{
 		List<int> numberOfViolationSum = new List<int>();
 		Dictionary<string, Queue<Batch>> singleBatchGroupRepeatingPattern = new Dictionary<string, Queue<Batch>>();
@@ -230,7 +230,7 @@ internal class ScheduleFitness : IFitness
 
 	// Calculates how often the repeating pattern is violated
 	// Can be performed on specifik "Parent" batch Groups, or a collection of "single" batchGroups
-	private int calculateRepeatingPatternViolations(ScheduelChromosome chromosome, Dictionary<string, Queue<Batch>> repeatingGroupPattern, string batchGroupID)
+	private int calculateRepeatingPatternViolations(ScheduleChromosome chromosome, Dictionary<string, Queue<Batch>> repeatingGroupPattern, string batchGroupID)
 	{
 		Queue<Job> optimalJobOrder = new Queue<Job>();
 		List<string> batchGroupIDList = new List<string>();
@@ -307,7 +307,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Makes a list with only jobs from a specified batch group, in the order they currently are in the chromosome 
-	private Queue<Job> jobOrderFromSpecificGroup(ScheduelChromosome chromosome, string batchgroupID = null, List<string> batchGroupIDs = null)
+	private Queue<Job> jobOrderFromSpecificGroup(ScheduleChromosome chromosome, string batchgroupID = null, List<string> batchGroupIDs = null)
 	{
 		Queue<Job> jobFromSameParentBatchGroup = new Queue<Job>();
 
@@ -340,8 +340,8 @@ internal class ScheduleFitness : IFitness
 	}
 
 
-	// Performes checks of the expected order patterns on the scheduel 
-	private double checkBatchOrder(ScheduelChromosome chromosome)
+	// Performes checks of the expected order patterns on the Schedule 
+	private double checkBatchOrder(ScheduleChromosome chromosome)
 	{
 		int numberOfRepeatingPatternViolations = checkRepeatingPattern(chromosome);
 		double totalRepeatingPatternPenelty = QuadraticPenaltyCalculation(numberOfRepeatingPatternViolations, 0.40, 2);
@@ -420,7 +420,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Checks that the Batches of same type are placed in an ASC order (jobs go from lowest in first batch and highest in last batch)
-	private int checkBatchesPlacedInASCOrder(ScheduelChromosome chromosome, Dictionary<int, Batch> batchList)
+	private int checkBatchesPlacedInASCOrder(ScheduleChromosome chromosome, Dictionary<int, Batch> batchList)
 	{
 		List<int> violationSum = new List<int>();
 
@@ -480,7 +480,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Checks if the same type of batch is overlapping with versions of it self
-	private int checkOverlappingBatches(ScheduelChromosome chromosome, Batch batch)
+	private int checkOverlappingBatches(ScheduleChromosome chromosome, Batch batch)
 	{
 		int numberOfViolations = 0; 
 		int jobsInSameKindBatch = 0;
@@ -553,7 +553,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Checks how well the "Spread evenly" rule is followed.
-	private double checkSpreadEvenlyRule(ScheduelChromosome chromosome)
+	private double checkSpreadEvenlyRule(ScheduleChromosome chromosome)
 	{
 		string HIGH = "high";
 		string LOW = "low";
@@ -623,7 +623,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Calculates number of violations of the constraints, and if it is a hard or soft violation 
-	private Dictionary<string, int> checkBatchSpreadEvenly(ScheduelChromosome chromosome, Batch batch = null, BatchGroup batchGroup = null)
+	private Dictionary<string, int> checkBatchSpreadEvenly(ScheduleChromosome chromosome, Batch batch = null, BatchGroup batchGroup = null)
 	{ 
 		string HIGH = "high";
 		string LOW = "low";
@@ -707,7 +707,7 @@ internal class ScheduleFitness : IFitness
 	}
 
 	// Calculates the number of violations of the "spread out" rule that are performed on a single instance of two jobs 
-	private Dictionary<string, int> calculateSpreadViolations(ScheduelChromosome chromosome, Job firstJob, Job secondJob, int cooldown, double maxDistance)
+	private Dictionary<string, int> calculateSpreadViolations(ScheduleChromosome chromosome, Job firstJob, Job secondJob, int cooldown, double maxDistance)
 	{
 		string HIGH = "high";
 		string LOW = "low";
@@ -785,7 +785,7 @@ internal class ScheduleFitness : IFitness
 	
 
 	// Checkes how well the Keep-together rule is followed on batches where it applies 
-	private double checkKeepTogetherRule(ScheduelChromosome chromosome)
+	private double checkKeepTogetherRule(ScheduleChromosome chromosome)
 	{
 		int totalPenelty = 0;
 		List<double> penaltySum = new List<double>();
@@ -833,7 +833,7 @@ internal class ScheduleFitness : IFitness
 	}
 	
 	// Calculates the number of violations of the "Keep Together" rule on a batch basis.
-	private int checkBatchKeepTogether(ScheduelChromosome chromosome, Batch batch)
+	private int checkBatchKeepTogether(ScheduleChromosome chromosome, Batch batch)
 	{
 		int cooldown = batch.Cooldown;
 		
@@ -890,7 +890,7 @@ internal class ScheduleFitness : IFitness
 
 	// Checks if the highest priority jobs are placed first
 	// violation calculation (numberOfViolations, factor)^6
-	private double checkHighestPriorityPlacement(ScheduelChromosome chromosome)
+	private double checkHighestPriorityPlacement(ScheduleChromosome chromosome)
 	{
 		int exponent = 8; // SUBJECT TO CHANGE
 		double weightFraction = 0;
@@ -937,7 +937,7 @@ internal class ScheduleFitness : IFitness
 
 	// Checks if the lowest priority jobs are placed last
 	// violation calculation (numberOfViolations, factor)^6
-	private double checkLowestPriorityPlacement(ScheduelChromosome chromosome)
+	private double checkLowestPriorityPlacement(ScheduleChromosome chromosome)
 	{
 		List<int> penaltyPointsSum = new List<int>();
 		int exponent = 8; // SUBJECT TO CHANGE
